@@ -1,0 +1,14 @@
+# SHA-256 of the Hover! files this project was developed against (Win95 CD, files dated 1997-05-01).
+e49b284bed8773bc2a14f4977d1be4ce5eedd1df79896e7b556e7eb538e2f09a  ./hover.exe
+a93801e0fc510688eca8ce650035884f3972d9d8191a347c57ead9c7dccf768e  ./mazes/maze1.maz
+7013a61363d4a9dbca2b6ee1293b02712b9c8c1a58974b64e4385b6191eedba3  ./mazes/maze2.maz
+15eb128c31e058cf1c73c38afc91c12273cdb4e1cd9ab2204ff119f3be3a2280  ./mazes/maze3.maz
+270aa006648b6cd11f64be8d948e177b3daf3ce15e5be2820bbc5e01d29a8af4  ./mazes/small.maz
+4074ca8de2c0f84903efde27b8cf5a54b8f41285e16af3ee9e5ce1b13bd2d705  ./mazes/small.tex
+013e013579cf022aeadedf881a18f3a1da6ca7003720a24388b03abe6a0dbd9a  ./mazes/text1.tex
+1bd73d93c73e7fdaf8112205068ed861dc8ae37357429c01021e45e8a6ea39a8  ./mazes/text2.tex
+260ee0259f8a0cc4a9b6d5d014b8330d2e999c8855b5b5c99959fc54a89629f2  ./mazes/text3.tex
+e639afb5607ea3f0ffafb550b6267a85f2af6e96ff7a7994004c4748e2e37205  ./sounds/music/music1.muz
+017a99c75dd7e46b334e8c3d681304c7859e1cf5d5c10a111b60b24afc76525c  ./sounds/music/music2.muz
+c04ab58d69eb98aa8972cb1bd5113e644d01e736f2c7f63c0b70d23607a76943  ./sounds/music/music3.muz
+083dc2f75f00d8c67a1894e1544db5fa80457364bae5180ebcb5b93fd37492f8  ./sounds/wmconfig.exe

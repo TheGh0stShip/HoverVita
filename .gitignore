@@ -1,0 +1,35 @@
+# Build output
+/build*/
+*.vpk
+*.self
+*.velf
+eboot.bin
+
+# Original game files: never commit (copyrighted)
+/hover/
+*.exe
+*.dll
+*.maz
+*.tex
+*.muz
+*.hlp
+*.cnt
+*.wav
+
+# Reverse-engineering artefacts (contain Microsoft code)
+/re/ghidra_proj/
+/re/out/
+*.gpr
+*.rep/
+
+# Extracted assets
+/extracted/
+*.mid
+
+# Tooling
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+compile_commands.json
+.cache/
