@@ -35,16 +35,14 @@ add_executable(${PROJECT_NAME} src/main.c ${ENGINE_SOURCES} ${PLATFORM_SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 
 if(VITA)
-  target_link_libraries(${PROJECT_NAME}
-    SDL2::SDL2-static
-    SceDisplay_stub SceCtrl_stub SceAudio_stub SceAudioIn_stub SceSysmodule_stub
-    SceGxm_stub SceCommonDialog_stub SceAppMgr_stub SceTouch_stub SceHid_stub
-    SceMotion_stub ScePower_stub SceIme_stub
-    m
-  )
-  find_package(SDL2 REQUIRED)
-  # Newer VitaSDK SDL2 builds pull in C++ (vitaGL); link with the C++ driver
-  # so libstdc++ always comes after them.
+  # Use SDL2's own static dependency list: it differs between VitaSDK SDL2
+  # builds (newer ones render through vitaGL and need its shader libraries).
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+  target_link_libraries(${PROJECT_NAME} ${SDL2_STATIC_LIBRARIES})
+  target_link_directories(${PROJECT_NAME} PRIVATE ${SDL2_STATIC_LIBRARY_DIRS})
+  target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_STATIC_INCLUDE_DIRS})
+  # vitaGL is C++; link with the C++ driver so libstdc++ comes last.
   enable_language(CXX)
   set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 
