@@ -14,11 +14,21 @@
 
 static uint32_t prev_held;
 
+static FILE *log_file;
+
+/* Logs go to the debug console and to ux0:data/HoverVita/log.txt (truncated
+ * each launch), so frame stats can be read back over FTP. */
 static void vlog(const char *level, const char *fmt, va_list ap)
 {
     char buf[512];
     vsnprintf(buf, sizeof(buf), fmt, ap);
     sceClibPrintf("[%s] %s\n", level, buf);
+    if (!log_file)
+        log_file = fopen("ux0:data/HoverVita/log.txt", "w");
+    if (log_file) {
+        fprintf(log_file, "[%s] %s\n", level, buf);
+        fflush(log_file);
+    }
 }
 
 void log_info(const char *fmt, ...)
@@ -51,6 +61,8 @@ int platform_init(void)
     vglWaitVblankStart(GL_TRUE); /* vsync: lock to 60 Hz */
 
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+    log_info("clocks: cpu %d MHz, gpu %d MHz", scePowerGetArmClockFrequency(),
+             scePowerGetGpuClockFrequency());
     return 0;
 }
 
