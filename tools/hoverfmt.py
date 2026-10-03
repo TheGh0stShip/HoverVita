@@ -82,9 +82,83 @@ def read_palette(r):
     return pal
 
 
+def skip_extension(r):
+    """Every Merlin Serialize ends with i16 n + n bytes the loader ignores."""
+    n = r.i16()
+    if n > 0:
+        r.bytes(n)
+
+
 def read_merlin_object(r):
-    # CMerlinObject::Serialize: name, then a WORD (meaning TBD)
-    return {'name': r.cstring(), 'objflags': r.u16()}
+    """CMerlinObject::Serialize (0x411b10): name + extension block."""
+    o = {'name': r.cstring()}
+    skip_extension(r)
+    return o
+
+
+def read_merlin_line(r):
+    """CMerlinLine::Serialize (0x414740): 2D segment in world units."""
+    o = read_merlin_object(r)
+    o['x1'], o['y1'], o['x2'], o['y2'] = r.i16(), r.i16(), r.i16(), r.i16()
+    skip_extension(r)
+    return o
+
+
+def read_merlin_static(r):
+    """CMerlinStatic::Serialize (0x419e00): a wall segment."""
+    o = read_merlin_line(r)
+    o['textures'] = [r.cstring() for _ in range(6)]
+    o['s'] = [r.i16() for _ in range(4)]
+    o['b'] = [r.u8() for _ in range(3)]
+    n = r.i16()
+    if n >= 5:
+        o['b2'] = r.u8()
+        o['s2'] = [r.i16(), r.i16()]
+        n -= 5
+    if n > 0:
+        r.bytes(n)
+    return o
+
+
+def read_merlin_bsp(r):
+    """CMerlinBSP::Serialize (0x41bc40): BSP node (splitter line + doubles)."""
+    o = read_merlin_line(r)
+    o['s'] = [r.i16() for _ in range(5)]
+    o['d'] = [r._unpack('<d'), r._unpack('<d')]
+    skip_extension(r)
+    return o
+
+
+def read_merlin_location(r):
+    """CMerlinLocation::Serialize (0x41b940): named point."""
+    o = read_merlin_object(r)
+    o['s'] = [r.i16() for _ in range(4)]
+    skip_extension(r)
+    return o
+
+
+def read_merlin_dynamic(r):
+    """CMerlinDynamic::Serialize (0x42cc40)."""
+    o = read_merlin_line(r)
+    o['texture'] = r.cstring()
+    o['s'] = [r.i16() for _ in range(5)]
+    o['b'] = r.u8()
+    skip_extension(r)
+    return o
+
+
+def read_maz_file(path):
+    """CMerlinWorld::Serialize (0x418dc0): 4 x i16 header, then 4 CObArrays."""
+    d = open(path, 'rb').read()
+    r = ArchiveReader(d)
+    r.classes.update({
+        'CMerlinStatic': read_merlin_static, 'CMerlinBSP': read_merlin_bsp,
+        'CMerlinLocation': read_merlin_location, 'CMerlinDynamic': read_merlin_dynamic,
+        'CMerlinLine': read_merlin_line,
+    })
+    world = {'header': [r.i16() for _ in range(4)]}
+    world['arrays'] = [[r.read_object() for _ in range(r.count())] for _ in range(4)]
+    return world, r.pos, len(d)
 
 
 def read_merlin_texture(r):
@@ -106,7 +180,7 @@ def read_merlin_texture(r):
         for _ in range(m['width']):
             cols.append([(r.i16(), r.i16()) for _ in range(r.i16())])
         m['columns'] = cols
-        m['extra'] = r.bytes(r.i16())
+        skip_extension(r)
         mips.append(m)
     t['mips'] = mips
     return t

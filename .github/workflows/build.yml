@@ -12,9 +12,9 @@ jobs:
     container: vitasdk/vitasdk:latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install SDL2
+      - name: Install vitaGL
         run: |
-          [ -f "$VITASDK/arm-vita-eabi/lib/libSDL2.a" ] || vdpm sdl2
+          [ -f "$VITASDK/arm-vita-eabi/lib/libvitaGL.a" ] || vdpm vitagl
       - name: Build
         run: |
           cmake -S . -B build-vita -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libgl-dev
       - name: Build
         run: |
           cmake -S . -B build-pc -DCMAKE_C_FLAGS=-Werror

@@ -1,195 +1,235 @@
 /*
- * HoverVita - entry point.
+ * HoverVita - entry point and main loop.
  *
- * Milestone 1: a texture viewer that proves the data pipeline end to end
- * (user data on the memory card -> CArchive parser -> palette -> screen).
- * It will be replaced by the game loop as the engine is reimplemented.
+ * Milestone 2: fly through the original mazes, rendered with the GPU at
+ * 60 fps on top of the game's fixed 20 Hz simulation step (game/timing.h).
  *
- * Controls: Left/Right (D-pad or keys) = texture, Up/Down = mip level,
- *           L/R or PageUp/PageDown = texture file, Start/Esc = quit.
+ * Controls (Vita / PC):
+ *   left stick / WASD       move          right stick / arrows  look
+ *   R / PageDown, L / PgUp  up / down     Triangle / E          next maze
+ *   Select / Tab            frame meter   Start / Esc           quit
  */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <SDL.h>
-
 #include "engine/log.h"
+#include "engine/maze.h"
 #include "engine/texture.h"
+#include "game/timing.h"
 #include "platform/platform.h"
+#include "platform/gl.h"
+#include "render/renderer.h"
 
-#define SCREEN_W 960
-#define SCREEN_H 544
-
-static const char *const tex_files[] = {
-    "mazes/text1.tex", "mazes/text2.tex", "mazes/text3.tex", "mazes/small.tex",
+static const struct {
+    const char *maze, *textures;
+} levels[] = {
+    {"mazes/maze1.maz", "mazes/text1.tex"},
+    {"mazes/maze2.maz", "mazes/text2.tex"},
+    {"mazes/maze3.maz", "mazes/text3.tex"},
 };
-#define NUM_TEX_FILES (int)(sizeof(tex_files) / sizeof(tex_files[0]))
+#define NUM_LEVELS (int)(sizeof(levels) / sizeof(levels[0]))
+
+#define FLY_SPEED 1600.0f /* world units per second */
+#define LOOK_SPEED 2.2f   /* radians per second */
+#define EYE_HEIGHT 160.0f /* TODO(re): the hovercraft's eye height */
 
 typedef struct {
-    SDL_Renderer *ren;
-    SDL_Texture *tex;
-    TextureSet set;
+    Maze maze;
+    TextureSet textures;
+    Renderer *renderer;
     int loaded;
-    int file, index, level;
-} Viewer;
+} Level;
 
-static void viewer_load_file(Viewer *v)
+static void level_unload(Level *lv)
 {
-    if (v->loaded)
-        texture_set_free(&v->set);
-    v->loaded = 0;
-    v->index = v->level = 0;
-    size_t size;
-    void *data = platform_load_file(tex_files[v->file], &size);
-    if (data && texture_set_load(&v->set, data, size) == 0 && v->set.ntextures > 0) {
-        v->loaded = 1;
-        log_info("%s: %d textures", tex_files[v->file], v->set.ntextures);
-    } else if (data) {
-        texture_set_free(&v->set);
-    }
-}
-
-static void viewer_upload(Viewer *v)
-{
-    if (v->tex)
-        SDL_DestroyTexture(v->tex);
-    v->tex = NULL;
-    if (!v->loaded)
+    if (!lv->loaded)
         return;
-
-    const Texture *t = v->set.textures[v->index];
-    if (v->level >= t->nmips)
-        v->level = t->nmips - 1;
-    const TextureMip *m = &t->mips[v->level];
-    size_t n = (size_t)m->width * m->height;
-    uint8_t *idx = malloc(n), *mask = malloc(n);
-    uint32_t *rgba = malloc(n * 4);
-    if (idx && mask && rgba) {
-        texture_mip_expand(m, v->level, idx, mask);
-        for (size_t i = 0; i < n; i++) {
-            const uint8_t *c = v->set.palette[idx[i]];
-            rgba[i] = mask[i] ? (0xFFu << 24 | c[2] << 16 | c[1] << 8 | c[0]) : 0;
-        }
-        v->tex = SDL_CreateTexture(v->ren, SDL_PIXELFORMAT_ABGR8888,
-                                   SDL_TEXTUREACCESS_STATIC, m->width, m->height);
-        if (v->tex) {
-            SDL_SetTextureBlendMode(v->tex, SDL_BLENDMODE_BLEND);
-            SDL_UpdateTexture(v->tex, NULL, rgba, m->width * 4);
-        }
-        log_info("[%d/%d] %s mip %d (%dx%d)", v->index + 1, v->set.ntextures,
-                 t->name, v->level, m->width, m->height);
-    }
-    free(idx);
-    free(mask);
-    free(rgba);
+    renderer_destroy(lv->renderer);
+    maze_free(&lv->maze);
+    texture_set_free(&lv->textures);
+    memset(lv, 0, sizeof(*lv));
 }
 
-static void draw(Viewer *v)
+static int level_load(Level *lv, int index, Camera *spawn)
 {
-    SDL_SetRenderDrawColor(v->ren, 32, 32, 48, 255);
-    SDL_RenderClear(v->ren);
-    if (v->tex) {
-        int w, h;
-        SDL_QueryTexture(v->tex, NULL, NULL, &w, &h);
-        /* fit to screen, integer-free scaling, keep aspect */
-        float s = SDL_min((SCREEN_W - 32.0f) / w, (SCREEN_H - 32.0f) / h);
-        SDL_Rect dst = {(int)(SCREEN_W - w * s) / 2, (int)(SCREEN_H - h * s) / 2,
-                        (int)(w * s), (int)(h * s)};
-        SDL_RenderCopy(v->ren, v->tex, NULL, &dst);
-    } else {
-        /* no data: red bar so the problem is visible on hardware */
-        SDL_Rect r = {0, SCREEN_H / 2 - 8, SCREEN_W, 16};
-        SDL_SetRenderDrawColor(v->ren, 200, 40, 40, 255);
-        SDL_RenderFillRect(v->ren, &r);
+    level_unload(lv);
+    size_t msize, tsize;
+    void *mdata = platform_load_file(levels[index].maze, &msize);
+    void *tdata = platform_load_file(levels[index].textures, &tsize);
+    int ok = mdata && tdata;
+    ok = ok && maze_load(&lv->maze, mdata, msize) == 0;
+    free(mdata);
+    if (ok && texture_set_load(&lv->textures, tdata, tsize) != 0) {
+        texture_set_free(&lv->textures); /* owns tdata now */
+        maze_free(&lv->maze);
+        ok = 0;
+    } else if (!ok) {
+        free(tdata);
     }
-    SDL_RenderPresent(v->ren);
+    if (!ok) {
+        log_error("could not load %s", levels[index].maze);
+        return -1;
+    }
+    lv->renderer = renderer_create(&lv->maze, &lv->textures);
+    lv->loaded = 1;
+
+    const MazeLocation *start = maze_find_location(&lv->maze, "HUMAN_00");
+    memset(spawn, 0, sizeof(*spawn));
+    spawn->x = start ? start->x : (lv->maze.minx + lv->maze.maxx) / 2.0f;
+    spawn->y = start ? start->y : (lv->maze.miny + lv->maze.maxy) / 2.0f;
+    spawn->z = EYE_HEIGHT;
+    log_info("level %d: %d walls, start at (%.0f, %.0f)", index + 1, lv->maze.nwalls, spawn->x,
+             spawn->y);
+    return 0;
 }
 
-typedef enum { CMD_NONE, CMD_QUIT, CMD_PREV, CMD_NEXT, CMD_UP, CMD_DOWN, CMD_PREV_FILE, CMD_NEXT_FILE } Command;
-
-static Command translate(const SDL_Event *e)
+/* One fixed simulation step. Placeholder fly camera until the hovercraft
+ * physics are reverse engineered. */
+static void sim_step(Camera *cam, const InputState *in)
 {
-    if (e->type == SDL_QUIT)
-        return CMD_QUIT;
-    if (e->type == SDL_KEYDOWN) {
-        switch (e->key.keysym.sym) {
-        case SDLK_ESCAPE: return CMD_QUIT;
-        case SDLK_LEFT: return CMD_PREV;
-        case SDLK_RIGHT: return CMD_NEXT;
-        case SDLK_UP: return CMD_UP;
-        case SDLK_DOWN: return CMD_DOWN;
-        case SDLK_PAGEUP: return CMD_PREV_FILE;
-        case SDLK_PAGEDOWN: return CMD_NEXT_FILE;
-        }
+    const float dt = 1.0f / SIM_HZ;
+    float lookx = in->rx + !!(in->held & BTN_RIGHT) - !!(in->held & BTN_LEFT);
+    float looky = in->ry + !!(in->held & BTN_DOWN) - !!(in->held & BTN_UP);
+    cam->yaw -= lookx * LOOK_SPEED * dt;
+    cam->pitch -= looky * LOOK_SPEED * dt;
+    if (cam->pitch > 1.2f)
+        cam->pitch = 1.2f;
+    if (cam->pitch < -1.2f)
+        cam->pitch = -1.2f;
+
+    float fx = cosf(cam->yaw), fy = sinf(cam->yaw);
+    cam->x += (fx * -in->ly + fy * in->lx) * FLY_SPEED * dt;
+    cam->y += (fy * -in->ly - fx * in->lx) * FLY_SPEED * dt;
+    cam->z += (!!(in->held & BTN_R) - !!(in->held & BTN_L)) * FLY_SPEED * 0.5f * dt;
+}
+
+/* --screenshot FILE: render a few frames, save a PPM and exit (testing). */
+static void save_screenshot(const char *path)
+{
+    uint8_t *px = malloc(SCREEN_W * SCREEN_H * 3);
+    FILE *f = px ? fopen(path, "wb") : NULL;
+    if (f) {
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, SCREEN_W, SCREEN_H, GL_RGB, GL_UNSIGNED_BYTE, px);
+        fprintf(f, "P6\n%d %d\n255\n", SCREEN_W, SCREEN_H);
+        for (int y = SCREEN_H - 1; y >= 0; y--) /* GL rows are bottom-up */
+            fwrite(px + y * SCREEN_W * 3, 1, SCREEN_W * 3, f);
+        fclose(f);
+        log_info("screenshot saved to %s", path);
     }
-    if (e->type == SDL_CONTROLLERBUTTONDOWN) {
-        switch (e->cbutton.button) {
-        case SDL_CONTROLLER_BUTTON_START: return CMD_QUIT;
-        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return CMD_PREV;
-        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return CMD_NEXT;
-        case SDL_CONTROLLER_BUTTON_DPAD_UP: return CMD_UP;
-        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return CMD_DOWN;
-        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return CMD_PREV_FILE;
-        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return CMD_NEXT_FILE;
-        }
-    }
-    return CMD_NONE;
+    free(px);
+}
+
+static Camera lerp_camera(const Camera *a, const Camera *b, float t)
+{
+    Camera c;
+    c.x = a->x + (b->x - a->x) * t;
+    c.y = a->y + (b->y - a->y) * t;
+    c.z = a->z + (b->z - a->z) * t;
+    c.yaw = a->yaw + (b->yaw - a->yaw) * t;
+    c.pitch = a->pitch + (b->pitch - a->pitch) * t;
+    return c;
 }
 
 int main(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
-        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
-        return 1;
+    const char *screenshot = NULL;
+    int start_level = 0;
+    for (int i = 1; i + 1 < argc; i++) {
+        if (strcmp(argv[i], "--screenshot") == 0)
+            screenshot = argv[++i];
+        else if (strcmp(argv[i], "--level") == 0)
+            start_level = (atoi(argv[++i]) - 1 + NUM_LEVELS) % NUM_LEVELS;
     }
-    SDL_Window *win = SDL_CreateWindow("HoverVita", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                       SCREEN_W, SCREEN_H, 0);
-    Viewer v;
-    memset(&v, 0, sizeof(v));
-    v.ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC) : NULL;
-    if (!v.ren) {
-        fprintf(stderr, "SDL: %s\n", SDL_GetError());
+    if (platform_init() != 0)
         return 1;
-    }
-    for (int i = 0; i < SDL_NumJoysticks(); i++)
-        if (SDL_IsGameController(i))
-            SDL_GameControllerOpen(i);
-
     log_info("HoverVita: data directory %s", platform_data_dir());
-    viewer_load_file(&v);
-    viewer_upload(&v);
 
-    for (int running = 1; running;) {
-        SDL_Event e;
-        while (SDL_PollEvent(&e)) {
-            int n = v.loaded ? v.set.ntextures : 1;
-            switch (translate(&e)) {
-            case CMD_QUIT: running = 0; break;
-            case CMD_PREV: v.index = (v.index + n - 1) % n; v.level = 0; viewer_upload(&v); break;
-            case CMD_NEXT: v.index = (v.index + 1) % n; v.level = 0; viewer_upload(&v); break;
-            case CMD_UP: if (v.level > 0) v.level--; viewer_upload(&v); break;
-            case CMD_DOWN: v.level++; viewer_upload(&v); break;
-            case CMD_PREV_FILE:
-                v.file = (v.file + NUM_TEX_FILES - 1) % NUM_TEX_FILES;
-                viewer_load_file(&v);
-                viewer_upload(&v);
+    Level level;
+    memset(&level, 0, sizeof(level));
+    int level_index = start_level;
+    Camera prev, cur;
+    level_load(&level, level_index, &cur);
+    prev = cur;
+
+    int show_meter = 1;
+    InputState in;
+    memset(&in, 0, sizeof(in));
+    uint32_t pressed_since_tick = 0;
+    uint64_t last = platform_time_us(), acc = 0;
+    uint64_t stat_start = last;
+    int stat_frames = 0;
+    float stat_worst = 0, frame_ms = 0;
+
+    for (;;) {
+        uint64_t now = platform_time_us();
+        acc += now - last;
+        last = now;
+
+        platform_poll_input(&in);
+        pressed_since_tick |= in.pressed;
+        if (in.quit || (in.pressed & BTN_START))
+            break;
+        if (in.pressed & BTN_SELECT)
+            show_meter = !show_meter;
+
+        /* fixed-rate simulation */
+        int steps = 0;
+        while (acc >= SIM_DT_US) {
+            acc -= SIM_DT_US;
+            if (++steps > SIM_MAX_STEPS_PER_FRAME) {
+                acc = 0;
                 break;
-            case CMD_NEXT_FILE:
-                v.file = (v.file + 1) % NUM_TEX_FILES;
-                viewer_load_file(&v);
-                viewer_upload(&v);
-                break;
-            default: break;
             }
+            InputState tick = in;
+            tick.pressed = pressed_since_tick;
+            pressed_since_tick = 0;
+            if (tick.pressed & BTN_TRIANGLE) {
+                level_index = (level_index + 1) % NUM_LEVELS;
+                level_load(&level, level_index, &cur);
+                prev = cur;
+                continue;
+            }
+            prev = cur;
+            sim_step(&cur, &tick);
         }
-        draw(&v);
+
+        /* render, interpolated between the last two sim states */
+        uint64_t frame_start = platform_time_us();
+        Camera view = lerp_camera(&prev, &cur, (float)acc / SIM_DT_US);
+        if (level.loaded) {
+            renderer_draw(level.renderer, &view);
+        } else {
+            glClearColor(0.6f, 0.1f, 0.1f, 1); /* no data: red screen */
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+        if (show_meter)
+            renderer_draw_frame_meter(frame_ms, FRAME_BUDGET_MS);
+        frame_ms = (platform_time_us() - frame_start) / 1000.0f;
+        if (screenshot && stat_frames == 10) {
+            save_screenshot(screenshot);
+            break;
+        }
+        platform_swap();
+
+        /* frame stats to the log every 5 s */
+        stat_frames++;
+        float total_ms = (platform_time_us() - now) / 1000.0f;
+        if (total_ms > stat_worst)
+            stat_worst = total_ms;
+        if (platform_time_us() - stat_start >= 5000000) {
+            float secs = (platform_time_us() - stat_start) / 1e6f;
+            log_info("%.1f fps, worst frame %.1f ms, cpu %.2f ms", stat_frames / secs, stat_worst,
+                     frame_ms);
+            stat_start = platform_time_us();
+            stat_frames = 0;
+            stat_worst = 0;
+        }
     }
 
-    if (v.loaded)
-        texture_set_free(&v.set);
-    SDL_Quit();
+    level_unload(&level);
+    platform_shutdown();
     return 0;
 }

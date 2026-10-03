@@ -9,15 +9,20 @@ Milestones are roughly in order. Each one should leave the Vita build working.
 - [x] CMake build for Vita (VPK) and PC, CI
 - [x] Texture viewer on hardware
 
-### M2: Mazes
-- [ ] Decode `CMerlinWorld` / `CMerlinStatic` / `CMerlinBSP` / `CMerlinLine` / `CMerlinLocation`
-- [ ] `tools/maz2svg.py` top-down map dump for checking
-- [ ] C maze loader + tests
+### M2: Mazes ✅
+- [x] Decode `CMerlinWorld` / `CMerlinStatic` / `CMerlinBSP` / `CMerlinLine` / `CMerlinLocation`
+- [x] `tools/maz2svg.py` top-down map dump for checking
+- [x] C maze loader + tests
 
-### M3: Renderer
-- [ ] Reverse the span/column renderer (walls, floor, ceiling, sky, sprites)
-- [ ] 8-bit framebuffer → SDL texture presenter
-- [ ] Free-fly camera through a maze on Vita at 30+ fps
+### M3: Renderer (60 fps)
+- [x] GPU world renderer: walls, floor, sky, mipmaps, alpha-tested decals
+- [x] Fixed 20 Hz sim + interpolated 60 fps rendering, frame meter
+- [x] Free-fly camera through all three mazes (PC verified)
+- [ ] **Measure on Vita hardware**: confirm locked 60 fps, record numbers in docs/architecture.md
+- [ ] Reverse the original renderer for exact placement: texture slots, units per texel, eye height, FOV, sky
+- [ ] Ceiling (`CBASE`), steps, raised panels, pads
+- [ ] Upload the file's own mip chain on Vita (check vitaGL level uploads)
+- [ ] Sprites: pods, flags, robots (`POD0x`, `FLG0x`, `DRONE`)
 
 ### M4: Gameplay
 - [ ] Hovercraft physics and wall collisions (`CCollider`, `CRegionMatrix`)

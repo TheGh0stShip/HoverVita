@@ -10,7 +10,7 @@ project(HoverVita C)
 
 set(VITA_APP_NAME "Hover!")
 set(VITA_TITLEID  "HOVR00001")
-set(VITA_VERSION  "00.01")
+set(VITA_VERSION  "00.02")
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -22,31 +22,32 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 
+# Portable game code: no platform headers allowed in here.
 set(ENGINE_SOURCES
   src/engine/archive.c
+  src/engine/maze.c
   src/engine/texture.c
 )
 
-set(PLATFORM_SOURCES
-  src/platform/platform_sdl.c
+add_executable(${PROJECT_NAME}
+  src/main.c
+  src/render/renderer.c
+  src/platform/platform_files.c
+  ${ENGINE_SOURCES}
 )
-
-add_executable(${PROJECT_NAME} src/main.c ${ENGINE_SOURCES} ${PLATFORM_SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 
 if(VITA)
-  # Use SDL2's own static dependency list: it differs between VitaSDK SDL2
-  # builds (newer ones render through vitaGL and need its shader libraries).
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
-  target_link_libraries(${PROJECT_NAME} ${SDL2_STATIC_LIBRARIES})
-  if(SDL2_STATIC_LIBRARIES MATCHES "vitaGL")
-    # sdl2.pc omits these vitaGL dependencies
-    target_link_libraries(${PROJECT_NAME} SceShaccCgExt taihen_stub)
-  endif()
-  target_link_directories(${PROJECT_NAME} PRIVATE ${SDL2_STATIC_LIBRARY_DIRS})
-  target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_STATIC_INCLUDE_DIRS})
-  # vitaGL is C++; link with the C++ driver so libstdc++ comes last.
+  # Native Vita backend: vitaGL for rendering, sce* for input/power.
+  target_sources(${PROJECT_NAME} PRIVATE src/platform/platform_vita.c)
+  target_compile_options(${PROJECT_NAME} PRIVATE -O2 -mfpu=neon -mcpu=cortex-a9)
+  target_link_libraries(${PROJECT_NAME}
+    vitaGL vitashark SceShaccCgExt SceShaccCg_stub mathneon taihen_stub
+    SceKernelDmacMgr_stub SceGxm_stub SceDisplay_stub SceCtrl_stub SceAppMgr_stub
+    SceCommonDialog_stub SceIme_stub ScePower_stub SceSysmodule_stub SceLibKernel_stub
+    m
+  )
+  # vitaGL's shader compiler is C++; link with the C++ driver for libstdc++.
   enable_language(CXX)
   set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 
@@ -61,21 +62,26 @@ if(VITA)
   )
 else()
   find_package(SDL2 REQUIRED)
-  target_link_libraries(${PROJECT_NAME} SDL2::SDL2 m)
+  find_package(OpenGL REQUIRED)
+  target_sources(${PROJECT_NAME} PRIVATE src/platform/platform_pc.c)
+  target_link_libraries(${PROJECT_NAME} SDL2::SDL2 OpenGL::GL m)
   if(TARGET SDL2::SDL2main)
     target_link_libraries(${PROJECT_NAME} SDL2::SDL2main)
   endif()
-endif()
 
-if(NOT VITA)
   include(CTest)
   if(BUILD_TESTING)
-    add_executable(test_textures tests/test_textures.c ${ENGINE_SOURCES} ${PLATFORM_SOURCES})
-    target_include_directories(test_textures PRIVATE src)
-    target_link_libraries(test_textures SDL2::SDL2 m)
-    add_test(NAME textures COMMAND test_textures)
-    set_tests_properties(textures PROPERTIES
-      SKIP_RETURN_CODE 77
-      ENVIRONMENT "HOVER_DATA=${CMAKE_SOURCE_DIR}/hover")
+    # Tests need no window: they only use the engine and file loading, plus
+    # a stdio logger.
+    add_library(test_support STATIC tests/test_log.c src/platform/platform_files.c ${ENGINE_SOURCES})
+    target_include_directories(test_support PUBLIC src)
+    foreach(t textures mazes)
+      add_executable(test_${t} tests/test_${t}.c)
+      target_link_libraries(test_${t} test_support m)
+      add_test(NAME ${t} COMMAND test_${t})
+      set_tests_properties(${t} PROPERTIES
+        SKIP_RETURN_CODE 77
+        ENVIRONMENT "HOVER_DATA=${CMAKE_SOURCE_DIR}/hover")
+    endforeach()
   endif()
 endif()

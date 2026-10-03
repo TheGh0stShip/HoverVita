@@ -28,7 +28,8 @@ testers and artists.
 
 - C99, 4-space indent, braces on the function line for control flow and on a
   new line for functions. Run `clang-format` (`.clang-format` is in the repo).
-- `src/engine/` must not include SDL, `<windows.h>`, or Vita headers.
+- `src/engine/` and `src/game/` must not include SDL, GL, `<windows.h>` or Vita headers.
+- Keep 60 fps on Vita in mind: no allocation or file I/O per frame, and batch draw calls.
 - Builds must stay warning-free (`-Wall -Wextra`) on both PC and Vita.
 - Python tools: standard library only, so they run anywhere.
 

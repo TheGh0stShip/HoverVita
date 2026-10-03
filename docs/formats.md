@@ -35,7 +35,7 @@ Implementations: `src/engine/archive.c`, `tools/hoverfmt.py`.
 | Type | Field |
 |---|---|
 | CString | name |
-| u16 | unknown, always 0 so far |
+| i16 n, u8[n] | extension block, skipped |
 
 ## `.tex`: texture sets
 
@@ -69,8 +69,7 @@ repeat mip_count:
         i16  span_count
         repeat span_count:
             i16 top, bottom   // inclusive, in LEVEL-0 rows: shift right by the mip level
-    i16  extra_len
-    u8   extra[extra_len]     // unknown; the game skips it
+    extension block           // i16 n + n bytes, skipped
 ```
 
 The pixels of each column follow each other directly. For each span there
@@ -82,21 +81,102 @@ At load time the original can drop the largest mip levels to save memory
 
 Implementations: `src/engine/texture.c`, `tools/hoverfmt.py`, `tools/tex2png.py`.
 
-## `.maz`: mazes (work in progress)
+## `.maz`: mazes
 
-Files: `maze1.maz`, `maze2.maz`, `maze3.maz`, `small.maz`. These are CArchive
-streams with a short header before the first object. Known classes:
+Files: `maze1.maz`, `maze2.maz`, `maze3.maz` (paired with `text1..3.tex`) and
+`small.maz`. A maze is a flat 2D map, Doom-style 2.5D: wall segments with a
+z range, a 2D BSP, and named points.
 
-| Class | Runtime class | Size | Notes |
+### Extension blocks
+
+Every Merlin `Serialize` ends with `i16 n` followed by `n` bytes, which the
+loader skips. This is how the format stayed forward compatible.
+`CMerlinStatic` is the only class that reads into its block (see below).
+
+### CMerlinWorld (file root)
+
+`CMerlinWorld::Serialize` (0x418dc0). The file has no object tag at the top:
+it is the world's fields directly.
+
+```
+i16 minx, miny, maxx, maxy        // world bounds (maze1: 512,768 .. 22528,21248)
+CObArray statics                  // CMerlinStatic: walls
+CObArray dynamics                 // CMerlinDynamic: empty in every shipped maze
+CObArray locations                // CMerlinLocation
+CObArray bsp                      // CMerlinBSP
+```
+
+Each `CObArray` is `count` followed by that many objects (CArchive tags).
+
+| Maze | Walls | BSP nodes | Locations |
 |---|---|---|---|
-| CMerlinWorld | 0x4c51e0 | 0x64 | top-level world? |
-| CMerlinStatic | 0x4c5220 | 0xc4 | wall/floor segment, references textures by name (`CBASE`, `FBASE`, `BACKGRND`...) |
-| CMerlinBSP | 0x4c5660 | 0x68 | BSP node |
-| CMerlinLine | 0x4c5248 | 0x44 | 2D line |
-| CMerlinLocation | 0x4c5638 | 0x1c | point / spawn location |
-| CMerlinDynamic | 0x4c5608 | 0x70 | moving object |
+| maze1 | 542 | 544 | 125 |
+| maze2 | 377 | 382 | 118 |
+| maze3 | 676 | 676 | 128 |
+| small | 28 | 28 | 1 |
 
-The record layout is not documented yet. This is the next RE task.
+### CMerlinLine (base of walls and BSP nodes)
+
+`CMerlinLine::Serialize` (0x414740):
+
+```
+CMerlinObject base                // name is always empty here
+i16 x1, y1, x2, y2
+extension block
+```
+
+After loading, `0x4010c0` derives the bounding box, `dx`, `dy`, the squared
+length, and flags (1 = point, 2 = spans x, 4 = spans y).
+
+### CMerlinStatic (wall)
+
+`CMerlinStatic::Serialize` (0x419e00):
+
+```
+CMerlinLine base
+CString texture[6]                // looked up by name in the .tex set
+i16 bottom, top                   // z range: 0..768 is a full wall, 128..384 a raised panel
+i16 unk_a8, unk_aa
+u8  flags[3]
+i16 n                             // extension block, read as:
+    if n >= 5: u8 ext_b, i16 ext_s[2]; n -= 5
+    u8 skip[n]
+```
+
+Texture slot use (from statistics, **not yet confirmed**): slot 2 is the
+face texture (`DECAL_xx`, `WBASE_xx`, `SLED`, `HOLD`, `FLAG`); slot 3 is
+usually the same or `FBASE_xx`; slots 0, 1, 4 and 5 hold `STEPS`, `FBASE`
+and `CBASE` names on walls that step up or down. Slots whose texture name
+isn't found get a null pointer.
+
+### CMerlinBSP
+
+`CMerlinBSP::Serialize` (0x41bc40):
+
+```
+CMerlinLine base                  // splitter
+i16 v[5]                          // TODO(re): indices / children (e.g. 8, 9, 107, 88, 0)
+f64 d[2]                          // 0.0 in the shipped files
+extension block
+```
+
+### CMerlinLocation
+
+`CMerlinLocation::Serialize` (0x41b940):
+
+```
+CMerlinObject base                // name: HUMAN_nn, ROBOT_nn, FLAG_HUMAN_nn, FLAG_ROBOT_nn, POD_RANDOM_nn ...
+i16 x, y, z
+i16 r                             // 96 for every spawn; probably a radius
+extension block
+```
+
+### CMerlinDynamic
+
+`CMerlinDynamic::Serialize` (0x42cc40): `CMerlinLine`, `CString texture`,
+`i16[5]`, `u8`, extension block. No shipped maze uses it.
+
+Implementations: `src/engine/maze.c`, `tools/hoverfmt.py`, `tools/maz2svg.py`.
 
 ## `.muz`: music
 

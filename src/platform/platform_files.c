@@ -1,31 +1,12 @@
 #include "platform.h"
 
-#include <ctype.h>
 #include <dirent.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <SDL.h>
+#include <strings.h>
 
 #include "../engine/log.h"
-
-void log_info(const char *fmt, ...)
-{
-    va_list ap;
-    va_start(ap, fmt);
-    SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_INFO, fmt, ap);
-    va_end(ap);
-}
-
-void log_error(const char *fmt, ...)
-{
-    va_list ap;
-    va_start(ap, fmt);
-    SDL_LogMessageV(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_ERROR, fmt, ap);
-    va_end(ap);
-}
 
 const char *platform_data_dir(void)
 {
@@ -66,7 +47,7 @@ static int resolve_path(const char *rel, char *out, size_t outsize)
         if (d) {
             struct dirent *e;
             while ((e = readdir(d))) {
-                if (SDL_strcasecmp(e->d_name, part) == 0) {
+                if (strcasecmp(e->d_name, part) == 0) {
                     snprintf(out + len, outsize - len, "%s%s", e->d_name, *rel ? "/" : "");
                     found = 1;
                     break;
