@@ -40,7 +40,7 @@ if(VITA)
     SceDisplay_stub SceCtrl_stub SceAudio_stub SceAudioIn_stub SceSysmodule_stub
     SceGxm_stub SceCommonDialog_stub SceAppMgr_stub SceTouch_stub SceHid_stub
     SceMotion_stub ScePower_stub SceIme_stub
-    m
+    stdc++ m  # newer VitaSDK SDL2 builds pull in C++ code
   )
   find_package(SDL2 REQUIRED)
 

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     container: vitasdk/vitasdk:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install SDL2
         run: |
           [ -f "$VITASDK/arm-vita-eabi/lib/libSDL2.a" ] || vdpm sdl2
@@ -19,7 +19,7 @@ jobs:
         run: |
           cmake -S . -B build-vita -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
           cmake --build build-vita -j$(nproc)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: HoverVita-vpk
           path: build-vita/HoverVita.vpk
@@ -27,7 +27,7 @@ jobs:
   pc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
       - name: Build
@@ -40,6 +40,6 @@ jobs:
   tools:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check Python tools compile
         run: python3 -m py_compile tools/*.py re/scripts/*.py
