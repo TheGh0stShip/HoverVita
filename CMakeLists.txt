@@ -40,6 +40,10 @@ if(VITA)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
   target_link_libraries(${PROJECT_NAME} ${SDL2_STATIC_LIBRARIES})
+  if(SDL2_STATIC_LIBRARIES MATCHES "vitaGL")
+    # sdl2.pc omits these vitaGL dependencies
+    target_link_libraries(${PROJECT_NAME} SceShaccCgExt taihen_stub)
+  endif()
   target_link_directories(${PROJECT_NAME} PRIVATE ${SDL2_STATIC_LIBRARY_DIRS})
   target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_STATIC_INCLUDE_DIRS})
   # vitaGL is C++; link with the C++ driver so libstdc++ comes last.
