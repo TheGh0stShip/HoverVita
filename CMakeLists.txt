@@ -40,9 +40,13 @@ if(VITA)
     SceDisplay_stub SceCtrl_stub SceAudio_stub SceAudioIn_stub SceSysmodule_stub
     SceGxm_stub SceCommonDialog_stub SceAppMgr_stub SceTouch_stub SceHid_stub
     SceMotion_stub ScePower_stub SceIme_stub
-    stdc++ m  # newer VitaSDK SDL2 builds pull in C++ code
+    m
   )
   find_package(SDL2 REQUIRED)
+  # Newer VitaSDK SDL2 builds pull in C++ (vitaGL); link with the C++ driver
+  # so libstdc++ always comes after them.
+  enable_language(CXX)
+  set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 
   vita_create_self(eboot.bin ${PROJECT_NAME} UNSAFE)
   vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} eboot.bin
